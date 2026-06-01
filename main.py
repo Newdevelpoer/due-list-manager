@@ -31,6 +31,11 @@ if USE_TURSO:
 else:
     DB_PATH = os.path.join(BASE_DIR, "master.db")
 
+def dict_factory(cursor, row):
+    """Row factory that works with both sqlite3 and Turso cursors."""
+    fields = [col[0] for col in cursor.description]
+    return dict(zip(fields, row))
+
 def get_db():
     if USE_TURSO:
         conn = turso_sync.connect(
@@ -40,7 +45,7 @@ def get_db():
         )
     else:
         conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = dict_factory
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
