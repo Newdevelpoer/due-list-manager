@@ -421,3 +421,8 @@ async def generate_output(file: UploadFile = File(...)):
 def root():
     html_path = os.path.join(BASE_DIR, "index.html")
     return HTMLResponse(open(html_path, encoding="utf-8").read())
+
+@app.get("/health")
+def health():
+    """Health check endpoint — pinged by UptimeRobot to prevent Render sleep."""
+    return {"status": "ok"}
