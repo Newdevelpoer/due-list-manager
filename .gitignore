@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 master.db
 *.db
+*.db-shm
+*.db-wal
+uploads/

@@ -3,7 +3,7 @@ uvicorn[standard]
 pandas
 openpyxl
 python-docx
-anthropic
+google-genai
 python-dateutil
 python-multipart
 xlrd

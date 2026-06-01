@@ -186,7 +186,7 @@ async function generateOutput() {
     status.textContent = '';
     const summary = document.getElementById('outputSummary');
     summary.style.display = 'block';
-    summary.innerHTML = `<strong>Done.</strong> ${res.headers.get('X-Enriched')||'?'} rows enriched, ${res.headers.get('X-Mobiles-Added')||'?'} mobile numbers added, ${res.headers.get('X-Monthly-Appended')||'?'} missing Monthly payers appended (highlighted yellow)`;
+    summary.innerHTML = `<strong>Done.</strong> ${res.headers.get('X-Enriched')||'?'} rows enriched, ${res.headers.get('X-Mobiles-Added')||'?'} mobile numbers added.`;
   } catch(e) { status.innerHTML = `<span class="err">Error: ${e.message}</span>`; }
   btn.disabled = false;
 }

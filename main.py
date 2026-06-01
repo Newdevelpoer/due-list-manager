@@ -1,4 +1,4 @@
-import os, re, io, json, base64, sqlite3, tempfile
+import os, re, io, json, base64, sqlite3, tempfile, shutil
 from datetime import datetime, date
 from contextlib import contextmanager
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
@@ -12,9 +12,25 @@ from dateutil import parser as dateparser
 
 app = FastAPI()
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "master.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Use persistent disk on Render (/data), fallback to local dir for development
+DATA_DIR = "/data" if os.path.isdir("/data") else BASE_DIR
+DB_PATH = os.path.join(DATA_DIR, "master.db")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 FIELDS = ["sn", "policyno", "name", "doc", "fup", "sumass", "plan", "mode", "premium", "mobileno", "status"]
 YELLOW = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+def save_upload_copy(filename: str, content: bytes):
+    """Save a timestamped backup copy of every uploaded file."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name, ext = os.path.splitext(filename)
+    safe_name = re.sub(r'[^\w\-.]', '_', name)
+    dest = os.path.join(UPLOAD_DIR, f"{safe_name}_{ts}{ext}")
+    with open(dest, "wb") as f:
+        f.write(content)
+    return dest
 
 # ── DB ──────────────────────────────────────────────────────────────────────────
 
@@ -89,7 +105,10 @@ def clean_val(v):
 
 def normalize_policyno(v):
     s = clean_val(v)
-    return s.upper() if s else None
+    if not s: return None
+    # strip commas, spaces, dots that Excel number formatting may add
+    s = re.sub(r"[,\s\.]", "", s)
+    return s.upper()
 
 # ── Upsert ──────────────────────────────────────────────────────────────────────
 
@@ -171,26 +190,21 @@ def process_spreadsheet(content, filename):
     return ins, upd, None
 
 def process_image(content, filename):
-    import anthropic
-    b64 = base64.b64encode(content).decode()
-    ext = filename.rsplit(".", 1)[-1].lower()
-    media = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}.get(ext, "image/jpeg")
+    from google import genai
     prompt = ("Extract all insurance policy table data from this image. Return ONLY a raw JSON array "
               "of objects with these exact keys: sn, policyno, name, doc, fup, sumass, plan, mode, "
               "premium, mobileno, status. Use null for missing fields. No markdown, no explanation, raw JSON only.")
-    client = anthropic.Anthropic()
+    client = genai.Client()
     for attempt in range(2):
         try:
-            resp = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4096,
-                messages=[{"role": "user", "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}},
-                    {"type": "text", "text": prompt}
-                ]}]
+            resp = client.models.generate_content(
+                model="gemini-3.5-flash",
+                contents=[
+                    genai.types.Part.from_bytes(data=content, mime_type="image/jpeg"),
+                    prompt
+                ]
             )
-            text = resp.content[0].text.strip()
-            # strip markdown fences if present
+            text = resp.text.strip()
             if text.startswith("```"): text = re.sub(r"^```\w*\n?", "", text).rstrip("`").strip()
             records = json.loads(text)
             if not isinstance(records, list): return 0, 0, "OCR returned non-array JSON"
@@ -199,6 +213,7 @@ def process_image(content, filename):
         except Exception as e:
             if attempt == 0: continue
             return 0, 0, f"OCR failed: {e}"
+
 
 def process_docx(content, filename):
     from docx import Document
@@ -221,10 +236,14 @@ def process_docx(content, filename):
 
 @app.post("/upload")
 async def upload(files: list[UploadFile] = File(...)):
-    results = {"uploaded": 0, "inserted": 0, "updated": 0, "errors": []}
+    results = {"uploaded": 0, "inserted": 0, "updated": 0, "saved_copies": [], "errors": []}
     for f in files:
         try:
             content = await f.read()
+            # save a backup copy of every uploaded file
+            saved_path = save_upload_copy(f.filename, content)
+            results["saved_copies"].append(os.path.basename(saved_path))
+
             ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
             if ext in ("xlsx", "xls", "xlsm", "csv"):
                 ins, upd, err = process_spreadsheet(content, f.filename)
@@ -303,14 +322,12 @@ async def generate_output(file: UploadFile = File(...)):
         all_db = conn.execute("SELECT * FROM policies").fetchall()
     db_map = {row["policyno"].upper().strip(): dict(row) for row in all_db if row["policyno"]}
 
-    authority_pnos = set()
     enriched, mobiles_added, data_start = 0, 0, header_row + 1
 
     for r in range(data_start, ws.max_row + 1):
         raw_pno = ws.cell(r, pno_col).value
         pno = normalize_policyno(raw_pno)
         if not pno: continue
-        authority_pnos.add(pno)
         db_rec = db_map.get(pno)
         if not db_rec: continue
 
@@ -339,26 +356,6 @@ async def generate_output(file: UploadFile = File(...)):
 
         if filled: enriched += 1
 
-    # append missing monthly (mode=M) payers
-    monthly_appended = 0
-    for pno, rec in db_map.items():
-        if pno in authority_pnos: continue
-        mode = (rec.get("mode") or "").strip().upper()
-        if mode != "M": continue
-        new_row = ws.max_row + 1
-        for field, col_idx in col_map.items():
-            if field == "status":
-                st = normalize_status(rec.get("status"))
-                if st in ("autodebit", "dailycollection", "branchpaid"):
-                    ws.cell(new_row, col_idx, st)
-            else:
-                val = rec.get(field)
-                if val: ws.cell(new_row, col_idx, val)
-        # yellow fill entire row
-        for c in range(1, ws.max_column + 1):
-            ws.cell(new_row, c).fill = YELLOW
-        monthly_appended += 1
-
     # auto-fit column widths
     for col_idx in range(1, ws.max_column + 1):
         max_len = 0
@@ -379,12 +376,11 @@ async def generate_output(file: UploadFile = File(...)):
             "Content-Disposition": f'attachment; filename="{fname}"',
             "X-Enriched": str(enriched),
             "X-Mobiles-Added": str(mobiles_added),
-            "X-Monthly-Appended": str(monthly_appended),
         }
     )
 
 # serve index.html at root
 @app.get("/")
 def root():
-    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    html_path = os.path.join(BASE_DIR, "index.html")
     return HTMLResponse(open(html_path, encoding="utf-8").read())
