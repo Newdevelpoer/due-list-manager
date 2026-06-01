@@ -13,32 +13,54 @@ from dateutil import parser as dateparser
 app = FastAPI()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Use persistent disk on Render (/data), fallback to local dir for development
-DATA_DIR = "/data" if os.path.isdir("/data") else BASE_DIR
-DB_PATH = os.path.join(DATA_DIR, "master.db")
-UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 FIELDS = ["sn", "policyno", "name", "doc", "fup", "sumass", "plan", "mode", "premium", "mobileno", "status"]
 YELLOW = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
-def save_upload_copy(filename: str, content: bytes):
-    """Save a timestamped backup copy of every uploaded file."""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name, ext = os.path.splitext(filename)
-    safe_name = re.sub(r'[^\w\-.]', '_', name)
-    dest = os.path.join(UPLOAD_DIR, f"{safe_name}_{ts}{ext}")
-    with open(dest, "wb") as f:
-        f.write(content)
-    return dest
+# ── DB (Turso cloud or local SQLite) ────────────────────────────────────────────
 
-# ── DB ──────────────────────────────────────────────────────────────────────────
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
+
+if USE_TURSO:
+    import turso.sync as turso_sync
+    DB_PATH = os.path.join(BASE_DIR, "local_replica.db")
+else:
+    DB_PATH = os.path.join(BASE_DIR, "master.db")
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    if USE_TURSO:
+        conn = turso_sync.connect(
+            DB_PATH,
+            remote_url=TURSO_URL,
+            auth_token=TURSO_TOKEN,
+        )
+    else:
+        conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
+
+def db_push():
+    """Push local changes to Turso cloud (no-op in local dev)."""
+    if USE_TURSO:
+        conn = get_db()
+        try:
+            conn.push()
+        finally:
+            conn.close()
+
+def db_pull():
+    """Pull remote changes from Turso cloud (no-op in local dev)."""
+    if USE_TURSO:
+        conn = get_db()
+        try:
+            conn.pull()
+        finally:
+            conn.close()
 
 def init_db():
     with get_db() as conn:
@@ -49,8 +71,21 @@ def init_db():
             plan TEXT, mode TEXT, premium TEXT, mobileno TEXT, status TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+    db_push()
 
 init_db()
+# Pull latest data from cloud on startup
+db_pull()
+
+def save_upload_copy(filename: str, content: bytes):
+    """Save a timestamped backup copy of every uploaded file."""
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name, ext = os.path.splitext(filename)
+    safe_name = re.sub(r'[^\w\-.]', '_', name)
+    dest = os.path.join(UPLOAD_DIR, f"{safe_name}_{ts}{ext}")
+    with open(dest, "wb") as f:
+        f.write(content)
+    return dest
 
 # ── Normalization ───────────────────────────────────────────────────────────────
 
@@ -261,6 +296,7 @@ async def upload(files: list[UploadFile] = File(...)):
             results["updated"] += upd
         except Exception as e:
             results["errors"].append({"file": f.filename, "error": str(e)})
+    db_push()  # sync to Turso cloud
     return results
 
 @app.get("/master")
@@ -281,6 +317,7 @@ def clear_master(confirm: str = Query(...)):
     if confirm != "yes": raise HTTPException(400, "Pass ?confirm=yes to clear")
     with get_db() as conn:
         conn.execute("DELETE FROM policies")
+    db_push()  # sync to Turso cloud
     return {"message": "All records deleted"}
 
 @app.post("/generate-output")

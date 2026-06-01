@@ -7,3 +7,4 @@ google-genai
 python-dateutil
 python-multipart
 xlrd
+pyturso
