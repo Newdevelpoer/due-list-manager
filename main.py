@@ -437,7 +437,7 @@ def root():
     html_path = os.path.join(BASE_DIR, "index.html")
     return HTMLResponse(open(html_path, encoding="utf-8").read())
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     """Health check endpoint — pinged by UptimeRobot to prevent Render sleep."""
     return {"status": "ok"}
