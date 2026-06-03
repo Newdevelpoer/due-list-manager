@@ -304,6 +304,16 @@ async def upload(files: list[UploadFile] = File(...)):
     db_push()  # sync to Turso cloud
     return results
 
+@app.get("/search")
+def search_policy(q: str = Query(..., min_length=1)):
+    """Search policies by policy number (partial match)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM policies WHERE UPPER(TRIM(policyno)) LIKE ? ORDER BY policyno",
+            (f"%{q.strip().upper()}%",)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 @app.get("/master")
 def get_master(limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=0)):
     with get_db() as conn:
@@ -313,8 +323,8 @@ def get_master(limit: int = Query(50, ge=1, le=1000), offset: int = Query(0, ge=
 @app.get("/master/count")
 def get_count():
     with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM policies").fetchone()[0]
-        last = conn.execute("SELECT MAX(updated_at) FROM policies").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM policies").fetchone()["cnt"]
+        last = conn.execute("SELECT MAX(updated_at) AS lu FROM policies").fetchone()["lu"]
     return {"count": count, "last_updated": last}
 
 @app.delete("/master")
