@@ -76,6 +76,14 @@ def init_db():
             plan TEXT, mode TEXT, premium TEXT, mobileno TEXT, status TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS upload_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            sheet_name TEXT,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            record_count INTEGER DEFAULT 0,
+            records_json TEXT
+        )""")
     db_push()
 
 init_db()
@@ -95,12 +103,12 @@ def save_upload_copy(filename: str, content: bytes):
 # ── Normalization ───────────────────────────────────────────────────────────────
 
 COL_MAP = {
-    "sn": "sn", "srno": "sn", "serialno": "sn", "sr": "sn", "slno": "sn", "serial": "sn", "no": "sn",
+    "sn": "sn", "sno": "sn", "srno": "sn", "serialno": "sn", "sr": "sn", "slno": "sn", "serial": "sn", "no": "sn",
     "policyno": "policyno", "policynumber": "policyno", "policynum": "policyno", "policy": "policyno", "polno": "policyno",
     "name": "name", "holdername": "name", "insuredname": "name", "clientname": "name",
     "policyname": "name", "policyholdername": "name", "insured": "name",
     "doc": "doc", "dateofcommencement": "doc", "commencementdate": "doc", "startdate": "doc",
-    "dtofcomm": "doc", "dtofcommencement": "doc", "commdate": "doc", "dateofcommence": "doc",
+    "dtofcomm": "doc", "dtofcommencement": "doc", "commdate": "doc", "dateofcommence": "doc", "dateofcomm": "doc",
     "fup": "fup", "firstunpaidpremium": "fup", "duedate": "fup", "nextdue": "fup",
     "nextduedate": "fup", "unpaidpremium": "fup", "firstunpaid": "fup",
     "sumass": "sumass", "sumassured": "sumass", "suminsured": "sumass", "sa": "sumass",
@@ -124,8 +132,12 @@ def normalize_col(name):
     # skip fuzzy match for known non-column strings
     if any(ex in cleaned for ex in _FUZZY_EXCLUDE): return None
     # fuzzy substring matching for messier headers
+    # require the key to cover a significant portion of the cleaned string
+    # to avoid false positives on title rows like "licpolicyregisterform"
     for key, val in COL_MAP.items():
-        if len(key) >= 4 and key in cleaned: return val
+        if len(key) >= 4 and key in cleaned:
+            if len(key) / len(cleaned) >= 0.4:
+                return val
     return None
 
 STATUS_MAP = {
@@ -216,11 +228,27 @@ def _score_header_row(row_values):
             seen.add(norm)
     return hits
 
-def find_header_row(sheet_bytes, engine, sheet_name, max_scan=10):
+def _text_ratio(row_values):
+    """Return fraction of non-empty cells that are text (non-numeric).
+    Headers tend to be all-text; data rows tend to be mixed."""
+    text_count, total = 0, 0
+    for v in row_values:
+        if v is None: continue
+        s = str(v).strip()
+        if not s: continue
+        total += 1
+        try:
+            float(s.replace(",", "").replace(" ", ""))
+        except ValueError:
+            text_count += 1
+    return text_count / total if total else 0
+
+def find_header_row(sheet_bytes, engine, sheet_name, max_scan=15):
     """Scan the first `max_scan` rows to find the best header row.
 
     Returns the 0-based header index to pass to pd.read_excel(header=...).
     Falls back to 0 if no better row is found.
+    Uses both column-name recognition and text-ratio heuristics.
     """
     df_raw = pd.read_excel(
         io.BytesIO(sheet_bytes), sheet_name=sheet_name,
@@ -230,12 +258,18 @@ def find_header_row(sheet_bytes, engine, sheet_name, max_scan=10):
     best_idx, best_score = 0, 0
     for idx in range(len(df_raw)):
         row_vals = [str(v) if pd.notna(v) else None for v in df_raw.iloc[idx]]
-        score = _score_header_row(row_vals)
+        non_empty = sum(1 for v in row_vals if v and str(v).strip())
+        if non_empty == 0: continue
+        col_hits = _score_header_row(row_vals)
+        text_r = _text_ratio(row_vals)
+        # Weighted score: column name matches are strongest signal,
+        # high text ratio is secondary (headers are mostly text)
+        score = col_hits * 10 + (text_r * non_empty * 2)
         if score > best_score:
             best_score = score
             best_idx = idx
-    # Only use a non-zero header row if we found at least 2 recognizable columns
-    return best_idx if best_score >= 2 else 0
+    # Accept if we found at least 1 recognized column header
+    return best_idx if best_score >= 10 else 0
 
 def normalize_df(df):
     col_mapping = {}
@@ -250,19 +284,48 @@ def normalize_df(df):
     df = df.dropna(subset=["policyno"])
     return df.to_dict(orient="records")
 
+def _scrub_nans(records):
+    """Replace float NaN values with None so JSON serialization works."""
+    import math
+    for rec in records:
+        for k, v in rec.items():
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                rec[k] = None
+            elif isinstance(v, str) and v.strip().lower() in ("nan", "inf", "-inf"):
+                rec[k] = None
+    return records
+
+def _save_upload_batch(filename, sheet_data):
+    """Save per-sheet upload records for history viewing."""
+    if not sheet_data:
+        return
+    with get_db() as conn:
+        for sd in sheet_data:
+            clean = _scrub_nans(list(sd["records"]))
+            conn.execute(
+                "INSERT INTO upload_batches (filename, sheet_name, uploaded_at, record_count, records_json) VALUES (?,?,?,?,?)",
+                (filename, sd["sheet_name"], datetime.now().isoformat(), len(clean), json.dumps(clean))
+            )
+
 def process_spreadsheet(content, filename):
     ext = filename.rsplit(".", 1)[-1].lower()
     all_records = []
+    sheet_data = []
     if ext == "csv":
         df = pd.read_csv(io.BytesIO(content), dtype=str)
-        all_records = normalize_df(df)
+        records = normalize_df(df)
+        all_records = records
+        sheet_data.append({"sheet_name": filename, "records": records})
     else:
         engine = "xlrd" if ext == "xls" else "openpyxl"
         xls = pd.ExcelFile(io.BytesIO(content), engine=engine)
         for sheet in xls.sheet_names:
             header_idx = find_header_row(content, engine, sheet)
             df = pd.read_excel(xls, sheet_name=sheet, dtype=str, header=header_idx)
-            all_records.extend(normalize_df(df))
+            records = normalize_df(df)
+            all_records.extend(records)
+            sheet_data.append({"sheet_name": sheet, "records": records})
+    _save_upload_batch(filename, sheet_data)
     if not all_records: return 0, 0, "No recognizable policy data found"
     ins, upd = upsert_records(all_records)
     return ins, upd, None
@@ -372,6 +435,49 @@ def clear_master(confirm: str = Query(...)):
         conn.execute("DELETE FROM policies")
     db_push()  # sync to Turso cloud
     return {"message": "All records deleted"}
+
+@app.get("/uploads/history")
+def get_upload_history(limit: int = Query(200, ge=1, le=1000)):
+    """Return all uploaded data grouped by file/sheet, latest first."""
+    from fastapi.responses import JSONResponse
+    import math
+
+    with get_db() as conn:
+        batches = conn.execute(
+            "SELECT id, filename, sheet_name, uploaded_at, record_count, records_json "
+            "FROM upload_batches ORDER BY uploaded_at DESC, id DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    result = []
+    for b in batches:
+        entry = dict(b)
+        try:
+            records = json.loads(entry.pop("records_json") or "[]")
+            entry["records"] = _scrub_nans(records)
+        except (json.JSONDecodeError, TypeError):
+            entry.pop("records_json", None)
+            entry["records"] = []
+        result.append(entry)
+
+    # Use a NaN-safe serializer to prevent crashes on dirty legacy data
+    def nan_safe_default(obj):
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+    content = json.loads(json.dumps(result, default=nan_safe_default, allow_nan=False))
+    return JSONResponse(content=content)
+
+@app.delete("/uploads/history/{batch_id}")
+def delete_upload_batch(batch_id: int):
+    """Delete a single upload batch by ID."""
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM upload_batches WHERE id=?", (batch_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Batch not found")
+        conn.execute("DELETE FROM upload_batches WHERE id=?", (batch_id,))
+    db_push()
+    return {"message": "Batch deleted", "id": batch_id}
 
 @app.post("/generate-output")
 async def generate_output(file: UploadFile = File(...)):
