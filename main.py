@@ -114,10 +114,15 @@ COL_MAP = {
     "status": "status", "policystatus": "status", "paymentstatus": "status",
 }
 
+# Substrings that should never match fuzzy column detection
+_FUZZY_EXCLUDE = {"unnamed", "untitled", "column", "header", "field"}
+
 def normalize_col(name):
     if not name: return None
     cleaned = re.sub(r"[^a-z0-9]", "", str(name).lower().strip())
     if cleaned in COL_MAP: return COL_MAP[cleaned]
+    # skip fuzzy match for known non-column strings
+    if any(ex in cleaned for ex in _FUZZY_EXCLUDE): return None
     # fuzzy substring matching for messier headers
     for key, val in COL_MAP.items():
         if len(key) >= 4 and key in cleaned: return val
@@ -200,6 +205,38 @@ def upsert_records(records):
 
 # ── File processors ─────────────────────────────────────────────────────────────
 
+def _score_header_row(row_values):
+    """Score how many cells in a row look like recognized column headers."""
+    hits = 0
+    seen = set()
+    for v in row_values:
+        norm = normalize_col(v)
+        if norm and norm not in seen:
+            hits += 1
+            seen.add(norm)
+    return hits
+
+def find_header_row(sheet_bytes, engine, sheet_name, max_scan=10):
+    """Scan the first `max_scan` rows to find the best header row.
+
+    Returns the 0-based header index to pass to pd.read_excel(header=...).
+    Falls back to 0 if no better row is found.
+    """
+    df_raw = pd.read_excel(
+        io.BytesIO(sheet_bytes), sheet_name=sheet_name,
+        engine=engine, header=None, dtype=str,
+        nrows=max_scan,
+    )
+    best_idx, best_score = 0, 0
+    for idx in range(len(df_raw)):
+        row_vals = [str(v) if pd.notna(v) else None for v in df_raw.iloc[idx]]
+        score = _score_header_row(row_vals)
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+    # Only use a non-zero header row if we found at least 2 recognizable columns
+    return best_idx if best_score >= 2 else 0
+
 def normalize_df(df):
     col_mapping = {}
     for c in df.columns:
@@ -223,7 +260,8 @@ def process_spreadsheet(content, filename):
         engine = "xlrd" if ext == "xls" else "openpyxl"
         xls = pd.ExcelFile(io.BytesIO(content), engine=engine)
         for sheet in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=sheet, dtype=str)
+            header_idx = find_header_row(content, engine, sheet)
+            df = pd.read_excel(xls, sheet_name=sheet, dtype=str, header=header_idx)
             all_records.extend(normalize_df(df))
     if not all_records: return 0, 0, "No recognizable policy data found"
     ins, upd = upsert_records(all_records)
