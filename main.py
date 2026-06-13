@@ -107,6 +107,7 @@ COL_MAP = {
     "policyno": "policyno", "policynumber": "policyno", "policynum": "policyno", "policy": "policyno", "polno": "policyno",
     "name": "name", "holdername": "name", "insuredname": "name", "clientname": "name",
     "policyname": "name", "policyholdername": "name", "insured": "name",
+    "nameofassured": "name", "assuredname": "name", "nameassured": "name",
     "doc": "doc", "dateofcommencement": "doc", "commencementdate": "doc", "startdate": "doc",
     "dtofcomm": "doc", "dtofcommencement": "doc", "commdate": "doc", "dateofcommence": "doc", "dateofcomm": "doc",
     "fup": "fup", "firstunpaidpremium": "fup", "duedate": "fup", "nextdue": "fup",
@@ -406,13 +407,25 @@ async def upload(files: list[UploadFile] = File(...)):
     return results
 
 @app.get("/search")
-def search_policy(q: str = Query(..., min_length=1)):
-    """Search policies by policy number (partial match)."""
+def search_policy(q: str = Query(..., min_length=1), field: str = Query("policyno")):
+    """Search policies by policy number or name (partial match)."""
+    query_val = q.strip().upper()
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM policies WHERE UPPER(TRIM(policyno)) LIKE ? ORDER BY policyno",
-            (f"%{q.strip().upper()}%",)
-        ).fetchall()
+        if field == "name":
+            rows = conn.execute(
+                "SELECT * FROM policies WHERE UPPER(COALESCE(name,'')) LIKE ? ORDER BY name, policyno",
+                (f"%{query_val}%",)
+            ).fetchall()
+        elif field == "both":
+            rows = conn.execute(
+                "SELECT * FROM policies WHERE UPPER(TRIM(policyno)) LIKE ? OR UPPER(COALESCE(name,'')) LIKE ? ORDER BY policyno",
+                (f"%{query_val}%", f"%{query_val}%")
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM policies WHERE UPPER(TRIM(policyno)) LIKE ? ORDER BY policyno",
+                (f"%{query_val}%",)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 @app.get("/master")

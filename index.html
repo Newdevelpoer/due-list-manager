@@ -73,8 +73,35 @@ body::before{
 }
 
 /* ── Search Bar ────────────────────────────────────── */
+.search-area{
+  margin-bottom:24px;
+}
+.search-toggle{
+  display:flex;align-items:center;gap:4px;
+  margin-bottom:10px;
+}
+.search-toggle-label{
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;
+  color:var(--muted);margin-right:8px;
+}
+.search-toggle .pill{
+  padding:6px 16px;border:1px solid var(--border);
+  border-radius:20px;background:var(--card);
+  color:var(--muted);font-size:12px;font-weight:600;
+  cursor:pointer;transition:all .2s ease;font-family:inherit;
+  user-select:none;
+}
+.search-toggle .pill:hover{
+  border-color:rgba(255,255,255,0.15);
+  color:var(--text);background:rgba(255,255,255,0.06);
+}
+.search-toggle .pill.active{
+  background:linear-gradient(135deg,var(--accent),#7c3aed);
+  border-color:var(--accent);color:#fff;
+  box-shadow:0 2px 12px rgba(99,102,241,0.3);
+}
 .search-wrapper{
-  position:relative;margin-bottom:24px;
+  position:relative;
 }
 .search-wrapper .search-icon{
   position:absolute;left:16px;top:50%;transform:translateY(-50%);
@@ -383,16 +410,24 @@ td.copied{background:rgba(34,197,94,0.15) !important;color:var(--green) !importa
       <div class="logo">IP</div>
       <h1>Insurance <span>Policy Manager</span></h1>
     </div>
-    <span class="version">v1.3.1</span>
+    <span class="version">v1.4.0</span>
   </div>
 
   <!-- Search -->
-  <div class="search-wrapper">
-    <span class="search-icon">⌕</span>
-    <input type="text" id="searchInput" placeholder="Search by policy number…" autocomplete="off" spellcheck="false">
-    <button class="search-clear" id="searchClear" title="Clear search">&times;</button>
+  <div class="search-area">
+    <div class="search-toggle" id="searchToggle">
+      <span class="search-toggle-label">Search by</span>
+      <button class="pill active" data-field="policyno" onclick="setSearchField('policyno',this)">🔢 Policy No</button>
+      <button class="pill" data-field="name" onclick="setSearchField('name',this)">👤 Name</button>
+      <button class="pill" data-field="both" onclick="setSearchField('both',this)">🔍 Both</button>
+    </div>
+    <div class="search-wrapper">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Search by policy number…" autocomplete="off" spellcheck="false">
+      <button class="search-clear" id="searchClear" title="Clear search">&times;</button>
+    </div>
+    <div class="search-results-info" id="searchInfo"></div>
   </div>
-  <div class="search-results-info" id="searchInfo"></div>
 
   <!-- Upload & Generate -->
   <div class="cards">
@@ -463,6 +498,28 @@ const COLS = ['sn','policyno','name','doc','fup','sumass','plan','mode','premium
 const COL_LABELS = {sn:'SN',policyno:'Policy No',name:'Name',doc:'DOC',fup:'FUP',sumass:'Sum Assured',plan:'Plan',mode:'Mode',premium:'Premium',mobileno:'Mobile',status:'Status'};
 let sortCol = -1, sortAsc = true, outputFile = null;
 let searchMode = false, searchDebounce = null;
+let searchField = 'policyno';
+
+const SEARCH_PLACEHOLDERS = {
+  policyno: 'Search by policy number…',
+  name: 'Search by name…',
+  both: 'Search by policy number or name…'
+};
+
+function setSearchField(field, btn) {
+  searchField = field;
+  document.querySelectorAll('#searchToggle .pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  const input = document.getElementById('searchInput');
+  input.placeholder = SEARCH_PLACEHOLDERS[field] || 'Search…';
+  // re-trigger search if there's text
+  const q = input.value.trim();
+  if (q) {
+    clearTimeout(searchDebounce);
+    performSearch(q);
+  }
+  input.focus();
+}
 
 /* ── Copy to clipboard ─────────────────────────────── */
 function showToast(msg) {
@@ -542,11 +599,12 @@ searchClear.addEventListener('click', () => {
 async function performSearch(query) {
   searchMode = true;
   try {
-    const rows = await (await fetch('/search?q='+encodeURIComponent(query))).json();
+    const rows = await (await fetch(`/search?q=${encodeURIComponent(query)}&field=${searchField}`)).json();
     searchInfo.style.display = 'block';
+    const fieldLabel = searchField === 'name' ? 'name' : searchField === 'both' ? 'policy no or name' : 'policy no';
     searchInfo.textContent = rows.length === 0
-      ? `No policies found matching "${query}"`
-      : `Found ${rows.length} polic${rows.length===1?'y':'ies'} matching "${query}"`;
+      ? `No policies found matching "${query}" in ${fieldLabel}`
+      : `Found ${rows.length} polic${rows.length===1?'y':'ies'} matching "${query}" in ${fieldLabel}`;
     renderTable(rows);
   } catch(e) {
     searchInfo.style.display = 'block';
