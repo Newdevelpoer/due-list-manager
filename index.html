@@ -398,6 +398,149 @@ td.copied{background:rgba(34,197,94,0.15) !important;color:var(--green) !importa
   .sheet-bar{flex-direction:column;align-items:flex-start;gap:6px}
   .sheet-bar .st{margin-left:0}
 }
+
+/* ── API Key Modal ─────────────────────────────────── */
+.apikey-overlay{
+  display:none;position:fixed;inset:0;z-index:110;
+  align-items:center;justify-content:center;
+}
+.apikey-overlay.open{display:flex}
+.apikey-backdrop{
+  position:absolute;inset:0;
+  background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);
+}
+.apikey-panel{
+  position:relative;width:94%;max-width:720px;
+  max-height:calc(100vh - 40px);
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;display:flex;flex-direction:column;
+  overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.6);
+  animation:modalIn .3s ease;
+}
+.apikey-topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px 24px;border-bottom:1px solid var(--border);
+  background:rgba(255,255,255,0.02);flex-shrink:0;
+}
+.apikey-topbar h2{font-size:17px;font-weight:700;display:flex;align-items:center;gap:10px}
+.apikey-body{flex:1;overflow-y:auto;padding:20px 24px}
+
+/* Create form */
+.ak-create-form{
+  display:flex;gap:10px;margin-bottom:20px;align-items:stretch;
+}
+.ak-create-form input{
+  flex:1;padding:10px 14px;
+  background:var(--card);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-family:inherit;
+  font-size:14px;outline:none;transition:border-color .2s;
+}
+.ak-create-form input::placeholder{color:var(--muted)}
+.ak-create-form input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,0.12)}
+
+/* New key reveal */
+.ak-reveal{
+  background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);
+  border-radius:10px;padding:16px;margin-bottom:20px;display:none;
+}
+.ak-reveal .ak-reveal-title{
+  font-size:13px;font-weight:700;color:var(--green);margin-bottom:8px;
+  display:flex;align-items:center;gap:6px;
+}
+.ak-reveal .ak-reveal-warn{
+  font-size:11px;color:var(--amber);margin-bottom:10px;
+}
+.ak-reveal .ak-key-display{
+  display:flex;align-items:center;gap:8px;
+}
+.ak-reveal .ak-key-text{
+  flex:1;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;
+  background:rgba(0,0,0,0.3);padding:10px 14px;border-radius:8px;
+  color:var(--green);border:1px solid rgba(34,197,94,0.15);
+  word-break:break-all;user-select:all;
+}
+.ak-reveal .btn-copy{
+  padding:8px 14px;border:1px solid rgba(34,197,94,0.3);
+  border-radius:8px;background:rgba(34,197,94,0.1);color:var(--green);
+  font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .2s;white-space:nowrap;
+}
+.ak-reveal .btn-copy:hover{background:rgba(34,197,94,0.2);transform:translateY(-1px)}
+
+/* Key list */
+.ak-list{margin-bottom:24px}
+.ak-item{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:12px 16px;background:var(--card);border:1px solid var(--border);
+  border-radius:10px;margin-bottom:8px;transition:border-color .2s;
+}
+.ak-item:hover{border-color:rgba(255,255,255,0.12)}
+.ak-item .ak-prefix{
+  font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;
+  color:var(--accent2);font-weight:600;
+}
+.ak-item .ak-label{font-size:13px;color:var(--text);font-weight:500}
+.ak-item .ak-meta{font-size:11px;color:var(--muted);margin-left:auto;text-align:right}
+.ak-item .ak-badge-active{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;
+  padding:3px 10px;border-radius:20px;
+  background:rgba(34,197,94,0.1);color:var(--green);
+  border:1px solid rgba(34,197,94,0.2);
+}
+.ak-item .ak-badge-revoked{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;
+  padding:3px 10px;border-radius:20px;
+  background:rgba(239,68,68,0.1);color:var(--red);
+  border:1px solid rgba(239,68,68,0.2);
+}
+.ak-item .btn-revoke{
+  padding:5px 12px;border:1px solid rgba(239,68,68,0.2);
+  border-radius:7px;background:rgba(239,68,68,0.08);color:var(--red);
+  font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:all .2s;
+}
+.ak-item .btn-revoke:hover{background:rgba(239,68,68,0.2);transform:translateY(-1px)}
+.ak-empty{text-align:center;padding:30px;color:var(--muted);font-size:14px}
+
+/* API docs section */
+.ak-docs{
+  background:rgba(0,0,0,0.3);border:1px solid var(--border);
+  border-radius:10px;padding:18px 20px;
+}
+.ak-docs h3{
+  font-size:14px;font-weight:700;color:var(--accent2);
+  margin-bottom:12px;display:flex;align-items:center;gap:8px;
+}
+.ak-docs p{font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.6}
+.ak-docs code{
+  font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;
+  background:rgba(99,102,241,0.1);color:var(--accent2);
+  padding:2px 6px;border-radius:4px;
+}
+.ak-docs pre{
+  background:rgba(0,0,0,0.4);border:1px solid var(--border);
+  border-radius:8px;padding:12px 14px;margin:8px 0 14px;
+  font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;
+  color:var(--text);overflow-x:auto;white-space:pre-wrap;line-height:1.7;
+}
+.ak-docs .ak-endpoint{
+  display:flex;align-items:baseline;gap:8px;margin-bottom:6px;
+}
+.ak-docs .ak-method{
+  font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;
+  color:#fff;
+}
+.ak-docs .ak-method.get{background:rgba(34,197,94,0.8)}
+.ak-docs .ak-path{font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;color:var(--text)}
+.ak-docs .ak-desc{font-size:12px;color:var(--muted);margin-bottom:12px;padding-left:2px}
+
+@media(max-width:768px){
+  .apikey-panel{width:100%;max-height:100vh;border-radius:0}
+  .apikey-body{padding:12px}
+  .ak-create-form{flex-direction:column}
+  .ak-item{flex-direction:column;align-items:flex-start;gap:8px}
+  .ak-item .ak-meta{margin-left:0;text-align:left}
+}
 </style>
 </head>
 <body>
@@ -410,7 +553,7 @@ td.copied{background:rgba(34,197,94,0.15) !important;color:var(--green) !importa
       <div class="logo">IP</div>
       <h1>Insurance <span>Policy Manager</span></h1>
     </div>
-    <span class="version">v1.4.0</span>
+    <span class="version">v1.5.0</span>
   </div>
 
   <!-- Search -->
@@ -463,6 +606,7 @@ td.copied{background:rgba(34,197,94,0.15) !important;color:var(--green) !importa
     <div class="stat-chip"><span class="stat-dot"></span> Records <span class="stat-val" id="totalCount">0</span></div>
     <div class="stat-chip">Last update <span class="stat-val" id="lastUpdate">—</span></div>
     <div class="spacer"></div>
+    <button class="btn btn-view" onclick="openApiKeys()" style="background:rgba(245,158,11,0.1);color:var(--amber);border-color:rgba(245,158,11,0.2)">🔑 API Keys</button>
     <button class="btn btn-view" onclick="openHistory()">📋 View All Uploaded Data</button>
     <button class="btn btn-danger" onclick="clearAll()">✕ Clear All Data</button>
   </div>
@@ -490,6 +634,78 @@ td.copied{background:rgba(34,197,94,0.15) !important;color:var(--green) !importa
       <button class="history-close" onclick="closeHistory()" title="Close (Esc)">&times;</button>
     </div>
     <div class="history-body" id="historyBody"></div>
+  </div>
+</div>
+
+<!-- API Key Management Modal -->
+<div class="apikey-overlay" id="apikeyModal">
+  <div class="apikey-backdrop" onclick="closeApiKeys()"></div>
+  <div class="apikey-panel">
+    <div class="apikey-topbar">
+      <h2>🔑 API Key Management</h2>
+      <button class="history-close" onclick="closeApiKeys()" title="Close (Esc)">&times;</button>
+    </div>
+    <div class="apikey-body">
+      <!-- Create form -->
+      <div class="ak-create-form">
+        <input type="text" id="akLabelInput" placeholder="Key label (e.g. My Script, Mobile App)" maxlength="100">
+        <button class="btn btn-primary" onclick="createApiKey()">+ Generate Key</button>
+      </div>
+
+      <!-- Reveal (shown once after creation) -->
+      <div class="ak-reveal" id="akReveal">
+        <div class="ak-reveal-title">✓ New API Key Created</div>
+        <div class="ak-reveal-warn">⚠ Copy this key now — it will NOT be shown again!</div>
+        <div class="ak-key-display">
+          <div class="ak-key-text" id="akRevealKey"></div>
+          <button class="btn-copy" onclick="copyApiKey()">📋 Copy</button>
+        </div>
+      </div>
+
+      <!-- Key list -->
+      <div class="ak-list" id="akList">
+        <div class="ak-empty">Loading…</div>
+      </div>
+
+      <!-- API Documentation -->
+      <div class="ak-docs">
+        <h3>📖 API Documentation</h3>
+        <p>Use your API key via the <code>X-API-Key</code> header or <code>?api_key=</code> query parameter.</p>
+
+        <div class="ak-endpoint">
+          <span class="ak-method get">GET</span>
+          <span class="ak-path">/api/v1/policies</span>
+        </div>
+        <div class="ak-desc">List all policies (paginated). Params: <code>limit</code>, <code>offset</code></div>
+
+        <div class="ak-endpoint">
+          <span class="ak-method get">GET</span>
+          <span class="ak-path">/api/v1/policies/search?q=...&amp;field=policyno</span>
+        </div>
+        <div class="ak-desc">Search by <code>policyno</code>, <code>name</code>, or <code>both</code></div>
+
+        <div class="ak-endpoint">
+          <span class="ak-method get">GET</span>
+          <span class="ak-path">/api/v1/policies/{policyno}</span>
+        </div>
+        <div class="ak-desc">Get a single policy by exact policy number</div>
+
+        <div class="ak-endpoint">
+          <span class="ak-method get">GET</span>
+          <span class="ak-path">/api/v1/policies/count</span>
+        </div>
+        <div class="ak-desc">Get total record count</div>
+
+        <h3 style="margin-top:16px">💻 Example Usage</h3>
+        <pre>curl -H "X-API-Key: YOUR_KEY" https://your-domain.com/api/v1/policies?limit=10
+
+curl "https://your-domain.com/api/v1/policies/search?q=JOHN&amp;field=name&amp;api_key=YOUR_KEY"
+
+curl -H "X-API-Key: YOUR_KEY" https://your-domain.com/api/v1/policies/123456789</pre>
+        <p style="margin-bottom:0"><strong>Fields returned:</strong> sn, policyno, name, doc, plan, mode, premium, sumass, fup, mobileno, status<br>
+        <span style="color:var(--amber)">Note:</span> Status values <em>"due"</em> and <em>"paid"</em> are returned as blank.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -822,7 +1038,87 @@ function updateHistoryBadge() {
   document.getElementById('historyBadge').textContent = total.toLocaleString() + ' records';
 }
 function closeHistory() { document.getElementById('historyModal').classList.remove('open'); }
-document.addEventListener('keydown', e => { if(e.key==='Escape') closeHistory(); });
+
+/* ── API Key Management ────────────────────────────── */
+function openApiKeys() {
+  document.getElementById('apikeyModal').classList.add('open');
+  document.getElementById('akReveal').style.display = 'none';
+  loadApiKeys();
+}
+function closeApiKeys() { document.getElementById('apikeyModal').classList.remove('open'); }
+
+async function createApiKey() {
+  const labelInput = document.getElementById('akLabelInput');
+  const label = labelInput.value.trim() || 'Untitled';
+  try {
+    const res = await fetch(`/api-keys?label=${encodeURIComponent(label)}`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to create key');
+    const data = await res.json();
+    // Show the key
+    const reveal = document.getElementById('akReveal');
+    document.getElementById('akRevealKey').textContent = data.api_key;
+    reveal.style.display = 'block';
+    labelInput.value = '';
+    loadApiKeys();
+    showToast('API key created!');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+function copyApiKey() {
+  const keyText = document.getElementById('akRevealKey').textContent;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(keyText).then(() => showToast('API key copied!'));
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = keyText; ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('API key copied!'); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+}
+
+async function loadApiKeys() {
+  const list = document.getElementById('akList');
+  try {
+    const keys = await (await fetch('/api-keys')).json();
+    if (!keys.length) {
+      list.innerHTML = '<div class="ak-empty">No API keys yet. Generate one above.</div>';
+      return;
+    }
+    list.innerHTML = keys.map(k => {
+      const created = k.created_at ? new Date(k.created_at).toLocaleDateString() : '—';
+      const lastUsed = k.last_used_at ? new Date(k.last_used_at).toLocaleString() : 'Never';
+      const isActive = k.is_active;
+      return `<div class="ak-item">
+        <span class="ak-prefix">${esc(k.key_prefix)}</span>
+        <span class="ak-label">${esc(k.label)}</span>
+        <span class="${isActive ? 'ak-badge-active' : 'ak-badge-revoked'}">${isActive ? 'Active' : 'Revoked'}</span>
+        <span class="ak-meta">Created: ${created}<br>Last used: ${lastUsed}</span>
+        ${isActive ? `<button class="btn-revoke" onclick="revokeApiKey(${k.id})">Revoke</button>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="ak-empty" style="color:var(--red)">Error loading keys: ${e.message}</div>`;
+  }
+}
+
+async function revokeApiKey(id) {
+  if (!confirm('Revoke this API key? It will stop working immediately.')) return;
+  try {
+    const res = await fetch(`/api-keys/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to revoke');
+    loadApiKeys();
+    showToast('API key revoked');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeHistory(); closeApiKeys(); }
+});
 
 refreshStats(); refreshPreview();
 </script>

@@ -90,6 +90,12 @@ init_db()
 # Pull latest data from cloud on startup
 db_pull()
 
+# Mount API key & protected endpoints from separate module (deferred to avoid circular import)
+@app.on_event("startup")
+def _mount_api():
+    from api import api_router
+    app.include_router(api_router)
+
 def save_upload_copy(filename: str, content: bytes):
     """Save a timestamped backup copy of every uploaded file."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -451,7 +457,9 @@ def clear_master(confirm: str = Query(...)):
 
 @app.get("/uploads/history")
 def get_upload_history(limit: int = Query(200, ge=1, le=1000)):
-    """Return all uploaded data grouped by file/sheet, latest first."""
+    """Return all uploaded data grouped by file/sheet, latest first.
+    Empty fields are enriched with data from the master DB so the display
+    always shows the fullest picture available."""
     from fastapi.responses import JSONResponse
     import math
 
@@ -461,12 +469,34 @@ def get_upload_history(limit: int = Query(200, ge=1, le=1000)):
             "FROM upload_batches ORDER BY uploaded_at DESC, id DESC LIMIT ?",
             (limit,)
         ).fetchall()
+
+        # Build a lookup map of master DB records keyed by uppercase policyno
+        all_db = conn.execute("SELECT * FROM policies").fetchall()
+    db_map = {row["policyno"].upper().strip(): dict(row) for row in all_db if row.get("policyno")}
+
     result = []
     for b in batches:
         entry = dict(b)
         try:
             records = json.loads(entry.pop("records_json") or "[]")
-            entry["records"] = _scrub_nans(records)
+            records = _scrub_nans(records)
+            # Enrich each record with master DB data for any empty fields
+            for rec in records:
+                pno = normalize_policyno(rec.get("policyno"))
+                if not pno:
+                    continue
+                db_rec = db_map.get(pno)
+                if not db_rec:
+                    continue
+                for f in FIELDS:
+                    if f == "policyno":
+                        continue
+                    current = rec.get(f)
+                    if not current or str(current).strip() == "":
+                        db_val = db_rec.get(f)
+                        if db_val and str(db_val).strip():
+                            rec[f] = db_val
+            entry["records"] = records
         except (json.JSONDecodeError, TypeError):
             entry.pop("records_json", None)
             entry["records"] = []
